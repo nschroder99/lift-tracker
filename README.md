@@ -34,6 +34,7 @@ Static HTML, no build step, no server, no account. Your log lives in
 | **Today** | The next workout in the rotation, with a Start button. Tap an exercise to open it, fill in weight and reps, tap ✓. The rest timer starts itself. |
 | **Last time** | The column left of your inputs is what you did on that same set number last session. That number is the target. |
 | **RIR** | Reps in reserve — how many more you could have done. `2` means two left. Only useful if you're honest. |
+| **Switching workouts** | *Do a different workout* under the Start button opens a picker for all four rotation days, showing when you last did each. Picking one moves the rotation to it — use it when you train out of order or repeat a day elsewhere. |
 | **Rest timer** | Starts itself when you tick a set — 3:00 after heavy compounds, 2:00 after moderate work, 1:15 after isolation. **+30s** extends it, **Skip** ends it, and each exercise has a *Rest* button to start one by hand (warm-ups). It chimes at zero; Settings can silence it. |
 | **Per side** | Plate math for barbell lifts, so you're not doing arithmetic between sets. |
 | **Progress** | Weekly sets per muscle against the 10–20 set band, bodyweight trend, and estimated 1RM for the five main lifts. |
@@ -54,6 +55,17 @@ mostly works, but the service worker won't register.)
 > **iOS note:** web audio is muted while the screen is locked, so keep the app
 > open during a set for the rest-timer chime to sound. The countdown itself is
 > computed from a timestamp, so it stays accurate even if you switch apps.
+
+## Sharing your progress
+
+Nothing is uploaded — nobody, including any AI assistant, can see your log
+unless you send it. Two ways to share:
+
+- **Progress → Copy check-in summary** puts a short plain-text digest on your
+  clipboard (lifts and estimated 1RMs, weekly sets per muscle, bodyweight trend,
+  recent sessions). Small enough to paste straight into a message.
+- **Settings → Export JSON** gives you the complete log as a file, for backup or
+  for deeper analysis.
 
 ## Backup
 

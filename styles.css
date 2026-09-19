@@ -250,6 +250,22 @@ h2.sect {
 .btn.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
 .btn.sm { min-height: 38px; font-size: 13px; width: auto; padding: 0 14px; }
 
+.linkbtn {
+  width: 100%; min-height: 40px; margin-top: 8px;
+  font-size: 13px; font-weight: 500; color: var(--ink-3);
+  text-decoration: underline; text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, var(--ink-3) 45%, transparent);
+}
+.linkbtn:active { color: var(--ink); }
+
+/* workout picker rows */
+.pickrow {
+  border: 1px solid var(--line-soft); border-radius: 10px;
+  background: var(--surface-2); margin-bottom: 7px;
+}
+.pickrow.on { border-color: var(--accent); }
+.pickrow:last-of-type { margin-bottom: 0; }
+
 .btn-row { display: flex; gap: 8px; }
 .btn-row .btn { flex: 1; }
 

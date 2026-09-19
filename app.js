@@ -101,6 +101,11 @@ function cycleNumber() {
   return Math.floor(daysBetween(DB.anchorDate, today()) / PROGRAM.cycleLength) + 1;
 }
 
+function dayLastDone(dayKey) {
+  const hits = DB.sessions.filter(s => s.dayKey === dayKey);
+  return hits.length ? hits[hits.length - 1].date : null;
+}
+
 /* ---------------------------------------------------------- lift math -- */
 /* Epley, extended with RIR so a 8@2RIR and a 10@0RIR compare honestly. */
 function e1rm(w, r, rir = 0) {
@@ -361,6 +366,7 @@ function viewToday() {
       <p>Day ${(schedulePos() ?? 0) + 1} of the cycle is off. Muscle is built between
          sessions, not during them — eat, sleep, walk.</p>
       <button class="btn ghost" id="startBtn">Train anyway — ${esc(day.name)}</button>
+      <button class="linkbtn" id="switchBtn">Do a different workout</button>
     </div>` : `
     <div class="hero" data-day="${dayKey}">
       <div class="eyebrow">Next session</div>
@@ -372,6 +378,7 @@ function viewToday() {
         ${musclesHit.map(m => `<span class="chip">${esc(m)}</span>`).join('')}
       </div>
       <button class="btn" id="startBtn">${svg(ICON.play).replace('<svg', '<svg style="width:15px;height:15px"')} Start ${esc(day.name)}</button>
+      <button class="linkbtn" id="switchBtn">Do a different workout</button>
     </div>`;
 
   const strip = PROGRAM.schedule.map((k, i) => {
@@ -645,7 +652,109 @@ function viewProgress() {
 
     ${liftRows ? `<div><h2 class="sect">Key lifts — estimated 1RM</h2>
       <div style="margin-top:8px">${liftRows}</div></div>` : ''}
+
+    <div class="card">
+      <div class="eyebrow">Check in with someone</div>
+      <p style="font-size:13px;color:var(--ink-2);margin:9px 0 13px;line-height:1.5">
+        Your log never leaves this phone, so nobody can see it unless you send it.
+        This copies a short plain-text summary — lifts, volume, bodyweight trend —
+        that you can paste into a message.</p>
+      <button class="btn ghost" id="copySumBtn">Copy check-in summary</button>
+    </div>
   `;
+}
+
+/* ------------------------------------------------------ check-in export -- */
+/* A short, pasteable digest. The full JSON export is the backup; this is the
+   thing you can actually paste into a message from a phone. */
+function buildSummary() {
+  const u = unitLabel();
+  const L = [];
+  const pad = (t, n) => String(t).padEnd(n);
+
+  L.push(`IRONLOG CHECK-IN — ${new Date().toLocaleDateString(undefined,
+    { day: 'numeric', month: 'short', year: 'numeric' })}`);
+  L.push(`Program: ${PROGRAM.name}, 2 on / 1 off`);
+
+  if (!DB.sessions.length) {
+    L.push('', 'No sessions logged yet.');
+    return L.join('\n');
+  }
+
+  const first = DB.sessions[0].date, last = DB.sessions[DB.sessions.length - 1].date;
+  const span = Math.max(1, daysBetween(first, today()));
+  L.push(`${DB.sessions.length} sessions over ${span} days · last trained ${fmtDate(last)}`);
+
+  // bodyweight
+  const bw = DB.bw.slice().sort((a, b) => a.date.localeCompare(b.date));
+  L.push('', 'BODYWEIGHT');
+  if (bw.length > 1) {
+    const d = bw[bw.length - 1].v - bw[0].v;
+    const wks = Math.max(0.5, daysBetween(bw[0].date, bw[bw.length - 1].date) / 7);
+    const perWk = d / wks;
+    const pctWk = (perWk / bw[bw.length - 1].v) * 100;
+    L.push(`  ${bw[bw.length - 1].v} ${u} now · ${d >= 0 ? '+' : ''}${d.toFixed(1)} ${u} since ${
+      shortDate(bw[0].date)}`);
+    L.push(`  rate ${perWk >= 0 ? '+' : ''}${perWk.toFixed(2)} ${u}/wk (${
+      pctWk >= 0 ? '+' : ''}${pctWk.toFixed(2)}%/wk) · target +0.25 to +0.50%/wk`);
+  } else {
+    L.push('  not logged — this is the number that says whether the surplus is working');
+  }
+
+  // key lifts
+  L.push('', `KEY LIFTS — estimated 1RM in ${u} (change since first logged session)`);
+  for (const id of ['bb_bench', 'bb_squat', 'deadlift', 'ohp', 'pullup', 'cs_row']) {
+    const h = historyFor(id);
+    if (!h.length) continue;
+    const ex = EXERCISE_INDEX[id];
+    const val = d => Math.max(...d.sets.map(t => e1rm(t.w, t.r, t.rir)));
+    const a = val(h[0]), b = val(h[h.length - 1]);
+    const top = h[h.length - 1].sets.reduce((m, t) => e1rm(t.w, t.r, t.rir) > e1rm(m.w, m.r, m.rir) ? t : m);
+    L.push(`  ${pad(ex.name, 24)} ${pad(Math.round(b), 5)} ${
+      pad((b >= a ? '+' : '') + (a ? ((b - a) / a * 100).toFixed(0) : '0') + '%', 6)} last ${
+      top.w}x${top.r}${top.rir !== '' && top.rir != null ? ` @${top.rir}RIR` : ''} · ${h.length} sessions`);
+  }
+
+  // volume
+  const vol = weeklyVolume();
+  L.push('', 'HARD SETS LAST 7 DAYS (target 10–20 per muscle)');
+  L.push('  ' + Object.entries(MUSCLES)
+    .map(([k, n]) => `${n} ${vol[k] % 1 ? vol[k].toFixed(1) : vol[k]}`).join(' · '));
+
+  // balance across the rotation
+  L.push('', 'SESSIONS PER ROTATION DAY');
+  L.push('  ' + PROGRAM.rotation
+    .map(k => `${PROGRAM.days[k].name} ${DB.sessions.filter(x => x.dayKey === k).length}`).join(' · '));
+
+  // recent sessions
+  L.push('', 'RECENT SESSIONS');
+  for (const x of DB.sessions.slice(-6).reverse()) {
+    const n = Object.values(x.entries || {}).reduce((a, y) => a + loggedSets(y).length, 0);
+    L.push(`  ${pad(shortDate(x.date), 8)} ${pad(PROGRAM.days[x.dayKey].name, 9)} ${
+      pad(n + ' sets', 9)} ${fmtTonnage(x)}${x.notes ? ' · ' + x.notes.slice(0, 60) : ''}`);
+  }
+
+  return L.join('\n');
+}
+
+async function copySummary() {
+  const text = buildSummary();
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Summary copied — paste it into a message.');
+  } catch (e) {
+    // clipboard blocked (older iOS, insecure context): show it to select by hand
+    const dlg = sheet(`
+      <h3>Check-in summary</h3>
+      <p style="font-size:12.5px;color:var(--ink-2);margin:-4px 0 0">
+        Copying was blocked, so select this text and copy it manually.</p>
+      <textarea readonly style="width:100%;height:46vh;background:var(--surface-2);
+        border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:10px;
+        font-family:var(--font-data);font-size:11px;line-height:1.5">${esc(text)}</textarea>
+      <button class="btn ghost" data-close>Close</button>`);
+    dlg.querySelector('textarea').select();
+    dlg.querySelector('[data-close]').onclick = () => dlg.close();
+  }
 }
 
 /* Small SVG line chart. One scale places the marks, the ticks and the labels;
@@ -889,6 +998,8 @@ document.addEventListener('click', (e) => {
   const sess = e.target.closest('[data-session]');
   if (sess) { openSession(sess.dataset.session); return; }
 
+  if (e.target.closest('#switchBtn')) { openWorkoutPicker(); return; }
+  if (e.target.closest('#copySumBtn')) { copySummary(); return; }
   if (e.target.closest('#settingsBtn') || e.target.closest('#settingsBtn2')) { openSettings(); return; }
   if (e.target.closest('#bwBtn')) { openBodyweight(); return; }
 });
@@ -956,6 +1067,40 @@ function openSession(id) {
     save(); dlg.close(); render();
     toast('Session deleted.');
   };
+}
+
+function openWorkoutPicker() {
+  const current = nextDayKey();
+  const rows = PROGRAM.rotation.map((k, i) => {
+    const d = PROGRAM.days[k];
+    const last = dayLastDone(k);
+    return `<button class="row pickrow ${k === current ? 'on' : ''}" data-pick="${i}" data-day="${k}">
+      <span class="daydot"></span>
+      <span class="lead">
+        <div class="t1">${esc(d.name)}${k === current ? ' <span class="ss-tag">NEXT UP</span>' : ''}</div>
+        <div class="t2">${esc(d.subtitle)}</div>
+      </span>
+      <span class="val">${d.exercises.length} ex<br><span style="color:var(--ink-3)">${
+        last ? esc(fmtDate(last)) : 'never'}</span></span>
+    </button>`;
+  }).join('');
+
+  const dlg = sheet(`
+    <h3>Choose a workout</h3>
+    <p style="font-size:12.5px;color:var(--ink-2);margin:-4px 0 2px;line-height:1.45">
+      Picking one moves the rotation to it. The date on the right is when you last
+      did that day — favouring the one you've trained least keeps the balance even.</p>
+    <div>${rows}</div>
+    <button class="btn ghost" data-close>Cancel</button>`);
+
+  dlg.querySelector('[data-close]').onclick = () => dlg.close();
+  dlg.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pick]');
+    if (!b) return;
+    DB.nextIndex = +b.dataset.pick;
+    save(); dlg.close(); render();
+    toast(`Switched to ${PROGRAM.days[nextDayKey()].name}.`);
+  });
 }
 
 function openBodyweight() {
