@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ironlog</title>
+<meta name="description" content="A logbook for an Upper/Lower 2-on-1-off hypertrophy block.">
+
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ironlog">
+<meta name="theme-color" content="#121419">
+
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="icon" href="./icons/favicon-32.png" sizes="32x32">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="./styles.css">
+</head>
+
+<body>
+  <div class="app">
+    <header class="topbar" id="topbar"></header>
+    <main id="view"></main>
+  </div>
+
+  <div class="timerbar" id="timerbar" hidden role="status" aria-live="polite">
+    <span class="t">0:00</span>
+    <span class="lbl"></span>
+    <span style="font-size:11px;color:var(--ink-3);white-space:nowrap">tap to skip</span>
+    <span class="bar"></span>
+  </div>
+
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Sections"></nav>
+
+  <dialog id="dlg"></dialog>
+
+  <script src="./program.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
