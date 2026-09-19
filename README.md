@@ -41,6 +41,15 @@ The rotation pointer **advances when you finish a session**, never on the
 calendar — miss a day and nothing desyncs. Settings has a manual override if
 you train out of order.
 
+## Previewing locally
+
+```bash
+python3 -m http.server 4173
+```
+
+Then open <http://localhost:4173>. (Opening `index.html` as a `file://` URL
+mostly works, but the service worker won't register.)
+
 ## Backup
 
 Everything is stored in your browser only. **Settings → Export JSON** before you
