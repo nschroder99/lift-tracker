@@ -1,6 +1,6 @@
 /* Cache the shell so the app opens with no signal — gym basements are gym
    basements. Bump CACHE when you change any of these files. */
-const CACHE = 'ironlog-v1';
+const CACHE = 'ironlog-v2';
 const SHELL = [
   './', './index.html', './styles.css', './program.js', './app.js',
   './manifest.webmanifest',

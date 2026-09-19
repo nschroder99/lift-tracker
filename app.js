@@ -14,6 +14,7 @@ const DEFAULTS = {
   active: null,           // in-progress session
   sessions: [],
   bw: [],
+  sound: true,
   seenIntro: false,
 };
 
@@ -200,34 +201,79 @@ function weeklyVolume(days = 7) {
   return tally;
 }
 
+/* ---------------------------------------------------------------- sound -- */
+/* iOS Safari ignores navigator.vibrate entirely, so the end of a rest has to be
+   audible. Web Audio needs the context created inside a user gesture, so we
+   unlock it on the first tap and keep it warm from then on. */
+const Sound = {
+  ctx: null,
+  unlock() {
+    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try {
+      this.ctx = new AC();
+      // a silent blip is what actually flips iOS out of the muted state
+      const b = this.ctx.createBuffer(1, 1, 22050);
+      const src = this.ctx.createBufferSource();
+      src.buffer = b; src.connect(this.ctx.destination); src.start(0);
+    } catch (e) { this.ctx = null; }
+  },
+  chime() {
+    if (!DB.sound) return;
+    if (navigator.vibrate) navigator.vibrate([90, 60, 90]);   // Android
+    if (!this.ctx) return;
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    const now = this.ctx.currentTime;
+    [880, 1318.5].forEach((hz, i) => {          // A5 then E6 — carries over gym noise
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = hz;
+      const t = now + i * 0.17;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.28, t + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.34);
+      osc.connect(gain); gain.connect(this.ctx.destination);
+      osc.start(t); osc.stop(t + 0.36);
+    });
+  },
+};
+
 /* --------------------------------------------------------- rest timer -- */
 const Timer = {
-  endsAt: null, target: 0, label: '', tick: null,
+  endsAt: null, target: 0, label: '', tick: null, alerted: false,
   start(seconds, label) {
     this.endsAt = Date.now() + seconds * 1000;
     this.target = seconds;
     this.label = label;
+    this.alerted = false;
     clearInterval(this.tick);
     this.tick = setInterval(() => this.paint(), 250);
+    this.paint();
+  },
+  add(seconds) {
+    if (!this.endsAt) return;
+    this.endsAt += seconds * 1000;
+    this.target += seconds;
+    if (this.remaining() > 0) this.alerted = false;
     this.paint();
   },
   stop() { clearInterval(this.tick); this.tick = null; this.endsAt = null; this.paint(); },
   remaining() { return this.endsAt ? (this.endsAt - Date.now()) / 1000 : 0; },
   paint() {
     const el = document.getElementById('timerbar');
+    // the bar is fixed above the tab bar, so the page needs room for it
+    document.body.classList.toggle('resting', !!this.endsAt);
     if (!this.endsAt) { el.hidden = true; return; }
     const rem = this.remaining();
     el.hidden = false;
     el.classList.toggle('over', rem <= 0);
     el.querySelector('.t').textContent = fmtClock(rem);
-    el.querySelector('.lbl').textContent = rem > 0 ? this.label : 'Rested — go.';
+    el.querySelector('.lbl').textContent = rem > 0 ? this.label : 'Rested — next set.';
     const pct = Math.max(0, Math.min(1, rem / this.target));
     el.querySelector('.bar').style.width = (pct * 100) + '%';
-    if (rem <= 0 && !this.buzzed) {
-      this.buzzed = true;
-      if (navigator.vibrate) navigator.vibrate([90, 60, 90]);
-    }
-    if (rem > 0) this.buzzed = false;
+    if (rem <= 0 && !this.alerted) { this.alerted = true; Sound.chime(); }
   },
 };
 const REST_SECONDS = { heavy: 180, moderate: 120, pump: 75 };
@@ -470,7 +516,8 @@ function renderExercise(ex, i, a) {
       ${usesPlates(ex.id) ? `<div class="plates">${platesHTML(pm)}</div>` : ''}
 
       <div class="exmore">
-        <span>Swap: ${esc((ex.subs || []).join(' · '))}</span>
+        <span style="flex:1">Swap: ${esc((ex.subs || []).join(' · '))}</span>
+        <button data-rest="${ex.id}">Rest ${fmtClock(REST_SECONDS[ex.scheme])}</button>
       </div>
     </div>` : ''}
   </div>`;
@@ -818,8 +865,8 @@ document.addEventListener('click', (e) => {
 
       const wasBest = bestE1rmFor(exId);
       save();
-      Timer.start(REST_SECONDS[ex.scheme], `Resting — ${ex.name}, set ${si + 2 > ex.sets ? 'done' : si + 2}`);
-      if (navigator.vibrate) navigator.vibrate(18);
+      Sound.unlock();
+      Timer.start(REST_SECONDS[ex.scheme], `${ex.name} — ${si + 2 > ex.sets ? 'last set done' : 'set ' + (si + 2) + ' next'}`);
       if (e1rm(set.w, set.r, set.rir) > wasBest && historyFor(exId).length) {
         toast(`Best ${ex.name} set yet.`);
       }
@@ -828,6 +875,14 @@ document.addEventListener('click', (e) => {
       save();
     }
     render();
+    return;
+  }
+
+  const restBtn = e.target.closest('[data-rest]');
+  if (restBtn) {
+    const ex = EXERCISE_INDEX[restBtn.dataset.rest];
+    Sound.unlock();
+    Timer.start(REST_SECONDS[ex.scheme], `${ex.name} — resting`);
     return;
   }
 
@@ -946,6 +1001,16 @@ function openSettings() {
     </div>
 
     <div class="field">
+      <label>Rest timer sound</label>
+      <div class="seg" id="soundSeg">
+        <button data-s="1" aria-pressed="${DB.sound !== false}">Chime</button>
+        <button data-s="0" aria-pressed="${DB.sound === false}">Silent</button>
+      </div>
+      <span style="font-size:11.5px;color:var(--ink-3)">Plays when the rest timer hits zero.
+        iOS mutes web audio while the screen is locked — keep the app open to hear it.</span>
+    </div>
+
+    <div class="field">
       <label for="nextSel">Next workout</label>
       <select id="nextSel">
         ${PROGRAM.rotation.map((k, i) =>
@@ -983,6 +1048,15 @@ function openSettings() {
     convertAll(b.dataset.u);
     save(); dlg.close(); render();
     toast(`Switched to ${DB.unit === 'lb' ? 'pounds' : 'kilograms'}.`);
+  };
+  dlg.querySelector('#soundSeg').onclick = (e) => {
+    const b = e.target.closest('[data-s]');
+    if (!b) return;
+    DB.sound = b.dataset.s === '1';
+    save();
+    dlg.querySelectorAll('#soundSeg button').forEach(x =>
+      x.setAttribute('aria-pressed', String((x.dataset.s === '1') === DB.sound)));
+    if (DB.sound) { Sound.unlock(); Sound.chime(); }
   };
   dlg.querySelector('#nextSel').onchange = (e) => { DB.nextIndex = +e.target.value; save(); render(); };
   dlg.querySelector('#anchorInp').onchange = (e) => { DB.anchorDate = e.target.value; save(); render(); };
@@ -1036,7 +1110,11 @@ document.getElementById('tabs').innerHTML = [
   `<button data-tab="${k}" role="tab" aria-selected="${view === k}">${svg(icon)}<span>${label}</span></button>`
 ).join('');
 
-document.getElementById('timerbar').addEventListener('click', () => Timer.stop());
+document.getElementById('timerbar').addEventListener('click', (e) => {
+  const add = e.target.closest('[data-addtime]');
+  if (add) { Sound.unlock(); Timer.add(+add.dataset.addtime); return; }
+  if (e.target.closest('[data-skip]')) Timer.stop();
+});
 
 if (DB.active) { expanded.add(PROGRAM.days[DB.active.dayKey].exercises[0].id); }
 render();
