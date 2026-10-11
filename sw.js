@@ -1,6 +1,6 @@
 /* Cache the shell so the app opens with no signal — gym basements are gym
    basements. Bump CACHE when you change any of these files. */
-const CACHE = 'ironlog-v4';
+const CACHE = 'ironlog-v5';
 const SHELL = [
   './', './index.html', './styles.css', './program.js', './app.js',
   './manifest.webmanifest',
@@ -9,7 +9,11 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache:'reload' skips the browser's HTTP cache (Pages sends max-age=600), so a
+  // new worker never installs ten-minute-old copies of the files it replaces
+  e.waitUntil(caches.open(CACHE)
+    .then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -26,7 +30,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (url.origin !== self.location.origin) return;   // let fonts hit the network
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then(res => {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy));

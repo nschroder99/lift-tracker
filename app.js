@@ -1255,7 +1255,20 @@ document.getElementById('timerbar').addEventListener('click', (e) => {
 if (DB.active) { expanded.add(PROGRAM.days[DB.active.dayKey].exercises[0].id); }
 render();
 
+/* A home-screen app on iOS is resumed, not reopened, so it would sit on the old
+   version indefinitely. Check for an update whenever it comes back to the front,
+   and reload once the new worker takes over — unless a set is half-typed. */
 if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () =>
-    navigator.serviceWorker.register('./sw.js').catch(() => {}));
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') reg.update().catch(() => {});
+      });
+    }).catch(() => {}));
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return;
+    const typing = document.activeElement?.matches('input, textarea');
+    if (!typing) location.reload();
+  });
 }
