@@ -33,15 +33,17 @@ Static HTML, no build step, no server, no account. Your log lives in
 |---|---|
 | **Today** | The next workout in the rotation, with a Start button. Tap an exercise to open it, fill in weight and reps, tap ✓. The rest timer starts itself. |
 | **Last time** | The column left of your inputs is what you did on that same set number last session. That number is the target. |
+| **Exercise notes** | Each exercise has a *Notes* box under its sets for standing reminders (seat height, grip, a twinge to watch). Notes stick to the exercise, not the session, so they show up every time it comes round — and a one-line preview shows on the card even when it's collapsed. |
 | **RIR** | Reps in reserve — how many more you could have done. `2` means two left. Only useful if you're honest. |
 | **Switching workouts** | *Do a different workout* under the Start button opens a picker for all four rotation days, showing when you last did each. Picking one moves the rotation to it — use it when you train out of order or repeat a day elsewhere. |
 | **Rest timer** | Starts itself when you tick a set — 3:00 after heavy compounds, 2:00 after moderate work, 1:15 after isolation. **+30s** extends it, **Skip** ends it, and each exercise has a *Rest* button to start one by hand (warm-ups). It chimes at zero; Settings can silence it. |
 | **Per side** | Plate math for barbell lifts, so you're not doing arithmetic between sets. |
 | **Progress** | Weekly sets per muscle against the 10–20 set band, bodyweight trend, and estimated 1RM for the five main lifts. |
 
-The rotation pointer **advances when you finish a session**, never on the
-calendar — miss a day and nothing desyncs. Settings has a manual override if
-you train out of order.
+The app only ever shows the **next workout**. It advances when you finish a
+session, never on the calendar — there are no scheduled rest days in the app,
+so rest whenever you like and it simply waits. Settings has a manual override
+if you train out of order.
 
 ## Previewing locally
 

@@ -32,10 +32,8 @@ const MUSCLES = {
 
 const PROGRAM = {
   name: 'Upper / Lower A-B',
-  cycleLength: 6,
-  /* The rotation the app walks through. REST entries are schedule guidance;
-     the "next workout" pointer only ever advances across training days. */
-  schedule: ['upperA', 'lowerA', 'REST', 'upperB', 'lowerB', 'REST'],
+  /* The rotation the app walks through. It shows only the next workout and
+     advances when a session is finished — rest days are up to you. */
   rotation: ['upperA', 'lowerA', 'upperB', 'lowerB'],
 
   days: {

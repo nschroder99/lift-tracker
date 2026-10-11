@@ -10,7 +10,6 @@ const DEFAULTS = {
   v: 1,
   unit: 'lb',
   nextIndex: 0,
-  anchorDate: null,       // first day of the 6-day schedule
   active: null,           // in-progress session
   sessions: [],
   bw: [],
@@ -81,24 +80,17 @@ function fmtClock(sec) {
 }
 
 /* ------------------------------------------------------- program state -- */
+/* The app only ever points at the next workout. It advances when a session is
+   finished, never on the clock — rest whenever you like and it simply waits. */
 function nextDayKey() { return PROGRAM.rotation[DB.nextIndex % PROGRAM.rotation.length]; }
 
-/* Where the calendar says we are in the 2-on/1-off pattern. This is guidance
-   only — the "next workout" pointer advances on completion, never on the clock,
-   so a missed day never desyncs the rotation. */
-function schedulePos() {
-  if (!DB.anchorDate) return null;
-  const d = daysBetween(DB.anchorDate, today());
-  if (d < 0) return null;
-  return ((d % PROGRAM.cycleLength) + PROGRAM.cycleLength) % PROGRAM.cycleLength;
-}
-function isScheduledRest() {
-  const p = schedulePos();
-  return p !== null && PROGRAM.schedule[p] === 'REST';
-}
-function cycleNumber() {
-  if (!DB.anchorDate) return 1;
-  return Math.floor(daysBetween(DB.anchorDate, today()) / PROGRAM.cycleLength) + 1;
+/* Standing reminders per exercise. They belong to the exercise, not a session,
+   so they carry forward every time that exercise comes round. */
+function exNote(exId) { return DB.exNotes?.[exId] || ''; }
+function setExNote(exId, text) {
+  DB.exNotes = { ...DB.exNotes };
+  if (text.trim()) DB.exNotes[exId] = text; else delete DB.exNotes[exId];
+  save();
 }
 
 function dayLastDone(dayKey) {
@@ -344,8 +336,8 @@ function topPlain(title, sub) {
     </div>${GEAR_BTN}`;
 }
 function topToday() {
-  const pos = schedulePos();
-  const cyc = DB.anchorDate ? `Cycle ${cycleNumber()} · Day ${(pos ?? 0) + 1}/6` : 'Not started';
+  const n = DB.sessions.length;
+  const cyc = n ? `${n} session${n > 1 ? 's' : ''} logged` : 'Not started';
   return `<div class="brand" style="flex:1"><b>Ironlog</b><span class="cyc">${esc(cyc)}</span></div>${GEAR_BTN}`;
 }
 
@@ -355,19 +347,10 @@ function viewToday() {
 
   const dayKey = nextDayKey();
   const day = PROGRAM.days[dayKey];
-  const rest = isScheduledRest();
   const totalSets = day.exercises.reduce((n, e) => n + e.sets, 0);
   const musclesHit = [...new Set(day.exercises.map(e => MUSCLES[e.muscle]))].slice(0, 4);
 
-  const hero = rest ? `
-    <div class="card restcard" data-day="${dayKey}">
-      <div class="eyebrow">Scheduled rest day</div>
-      <div class="big">Recover</div>
-      <p>Day ${(schedulePos() ?? 0) + 1} of the cycle is off. Muscle is built between
-         sessions, not during them — eat, sleep, walk.</p>
-      <button class="btn ghost" id="startBtn">Train anyway — ${esc(day.name)}</button>
-      <button class="linkbtn" id="switchBtn">Do a different workout</button>
-    </div>` : `
+  const hero = `
     <div class="hero" data-day="${dayKey}">
       <div class="eyebrow">Next session</div>
       <div class="day">${esc(day.name)}</div>
@@ -381,10 +364,9 @@ function viewToday() {
       <button class="linkbtn" id="switchBtn">Do a different workout</button>
     </div>`;
 
-  const strip = PROGRAM.schedule.map((k, i) => {
-    const cls = [k === 'REST' ? '' : k, i === schedulePos() ? 'now' : ''].filter(Boolean).join(' ');
-    const lbl = k === 'REST' ? 'rest' : PROGRAM.days[k].name.replace('Upper ', 'U').replace('Lower ', 'L');
-    return `<div class="${cls}">${esc(lbl)}</div>`;
+  const strip = PROGRAM.rotation.map(k => {
+    const cls = [k, k === dayKey ? 'now' : ''].filter(Boolean).join(' ');
+    return `<div class="${cls}">${esc(PROGRAM.days[k].name)}</div>`;
   }).join('');
 
   const recent = DB.sessions.slice(-3).reverse();
@@ -393,12 +375,12 @@ function viewToday() {
     ${hero}
 
     <div>
-      <h2 class="sect">The 6-day cycle</h2>
+      <h2 class="sect">The rotation</h2>
       <div class="card" style="margin-top:8px">
         <div class="cyclestrip">${strip}</div>
         <p style="font-size:12px;color:var(--ink-3);margin:11px 0 0;line-height:1.45">
-          Two on, one off. Every muscle gets hit twice per cycle — about 2.3× a week,
-          the frequency that beats once-weekly training in the research.
+          Finishing a session moves you to the next one. Rest whenever you need to —
+          the next workout just waits for you.
         </p>
       </div>
     </div>
@@ -494,6 +476,7 @@ function renderExercise(ex, i, a) {
 
   const lastWeight = sets.find(s => s.w)?.w;
   const pm = plateMath(lastWeight, ex.id);
+  const note = exNote(ex.id);
 
   return `<div class="ex ${complete ? 'done' : ''}">
     <button class="ex-head" data-toggle="${ex.id}" aria-expanded="${open}">
@@ -501,6 +484,7 @@ function renderExercise(ex, i, a) {
       <span class="ex-title">
         <div class="nm">${esc(ex.name)}${ex.superset ? `<span class="ss-tag">SS ${ex.superset}</span>` : ''}</div>
         <div class="meta"><b>${ex.sets}×${ex.lo}–${ex.hi}</b> · ${scheme.rir} RIR</div>
+        ${note && !open ? `<div class="notepeek">${esc(note)}</div>` : ''}
       </span>
       <span class="ex-prog ${complete ? 'full' : ''}">${done}/${ex.sets}</span>
     </button>
@@ -525,6 +509,12 @@ function renderExercise(ex, i, a) {
       <div class="exmore">
         <span style="flex:1">Swap: ${esc((ex.subs || []).join(' · '))}</span>
         <button data-rest="${ex.id}">Rest ${fmtClock(REST_SECONDS[ex.scheme])}</button>
+      </div>
+
+      <div class="exnote">
+        <label for="note-${ex.id}">Notes</label>
+        <textarea id="note-${ex.id}" data-exnote="${ex.id}" rows="2"
+          placeholder="Reminders for next time — seat height, grip, anything to watch">${esc(note)}</textarea>
       </div>
     </div>` : ''}
   </div>`;
@@ -602,7 +592,7 @@ function viewProgress() {
   return `
     <div class="stats">
       <div class="stat"><div class="n">${DB.sessions.length}</div><div class="l">Sessions</div></div>
-      <div class="stat"><div class="n">${DB.anchorDate ? cycleNumber() : 0}</div><div class="l">Cycle</div></div>
+      <div class="stat"><div class="n">${DB.sessions.filter(s => daysBetween(s.date, today()) < 7).length}</div><div class="l">This week</div></div>
       <div class="stat"><div class="n">${tonnage >= 1000 ? (tonnage / 1000).toFixed(1) + 'k' : Math.round(tonnage)}</div>
         <div class="l">${esc(unitLabel())} / week</div></div>
     </div>
@@ -726,6 +716,13 @@ function buildSummary() {
   L.push('  ' + PROGRAM.rotation
     .map(k => `${PROGRAM.days[k].name} ${DB.sessions.filter(x => x.dayKey === k).length}`).join(' · '));
 
+  // standing per-exercise reminders
+  const noted = Object.keys(EXERCISE_INDEX).filter(id => exNote(id));
+  if (noted.length) {
+    L.push('', 'EXERCISE NOTES');
+    for (const id of noted) L.push(`  ${EXERCISE_INDEX[id].name}: ${exNote(id).replace(/\s+/g, ' ')}`);
+  }
+
   // recent sessions
   L.push('', 'RECENT SESSIONS');
   for (const x of DB.sessions.slice(-6).reverse()) {
@@ -818,6 +815,7 @@ function viewProgram() {
           <span class="lead">
             <div class="t1">${esc(ex.name)}${ex.superset ? `<span class="ss-tag">SS ${ex.superset}</span>` : ''}</div>
             <div class="t2">${esc(MUSCLES[ex.muscle])} · ${REP_SCHEMES[ex.scheme].rir} RIR</div>
+            ${exNote(ex.id) ? `<div class="notepeek">${esc(exNote(ex.id))}</div>` : ''}
           </span>
           <span class="val">${ex.sets}×${ex.lo}–${ex.hi}</span>
         </div>`).join('')}
@@ -901,7 +899,6 @@ function startSession() {
     entries[ex.id] = Array.from({ length: ex.sets }, () => ({ w: w === '' ? '' : w, r: '', rir: '', done: false }));
   }
   DB.active = { dayKey, date: today(), started: Date.now(), entries, notes: '' };
-  if (!DB.anchorDate) DB.anchorDate = today();
   expanded.clear();
   expanded.add(day.exercises[0].id);
   save(); render();
@@ -1019,6 +1016,7 @@ document.addEventListener('input', (e) => {
     }
     return;
   }
+  if (e.target.dataset.exnote) { setExNote(e.target.dataset.exnote, e.target.value); return; }
   if (e.target.id === 'sessNotes' && DB.active) { DB.active.notes = e.target.value; save(); }
 });
 
@@ -1164,12 +1162,6 @@ function openSettings() {
       <span style="font-size:11.5px;color:var(--ink-3)">Use this if you skip a day or train out of order.</span>
     </div>
 
-    <div class="field">
-      <label for="anchorInp">Cycle start date</label>
-      <input id="anchorInp" type="date" value="${DB.anchorDate || today()}">
-      <span style="font-size:11.5px;color:var(--ink-3)">Day 1 of the 2-on/1-off pattern.</span>
-    </div>
-
     <div style="border-top:1px solid var(--line-soft);padding-top:14px">
       <div class="eyebrow" style="margin-bottom:9px">Backup</div>
       <p style="font-size:12.5px;color:var(--ink-2);margin:0 0 11px;line-height:1.45">
@@ -1204,7 +1196,6 @@ function openSettings() {
     if (DB.sound) { Sound.unlock(); Sound.chime(); }
   };
   dlg.querySelector('#nextSel').onchange = (e) => { DB.nextIndex = +e.target.value; save(); render(); };
-  dlg.querySelector('#anchorInp').onchange = (e) => { DB.anchorDate = e.target.value; save(); render(); };
 
   dlg.querySelector('[data-export]').onclick = () => {
     const blob = new Blob([JSON.stringify(DB, null, 2)], { type: 'application/json' });
