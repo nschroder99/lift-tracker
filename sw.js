@@ -1,6 +1,6 @@
 /* Cache the shell so the app opens with no signal — gym basements are gym
    basements. Bump CACHE when you change any of these files. */
-const CACHE = 'ironlog-v5';
+const CACHE = 'ironlog-v6';
 const SHELL = [
   './', './index.html', './styles.css', './program.js', './app.js',
   './manifest.webmanifest',
@@ -19,7 +19,8 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      // caches are shared by every app on nschroder99.github.io, so only clear Ironlog's own
+      .then(keys => Promise.all(keys.filter(k => k.startsWith('ironlog-') && k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -32,8 +33,8 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     fetch(e.request, { cache: 'no-cache' })
       .then(res => {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, copy));
+        // don't let a 404/5xx replace a good offline copy
+        if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
         return res;
       })
       .catch(() => caches.match(e.request).then(r => r || caches.match('./index.html')))

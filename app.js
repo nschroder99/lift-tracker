@@ -26,7 +26,7 @@ function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (!raw) return { ...DEFAULTS };
-    return { ...DEFAULTS, ...JSON.parse(raw) };
+    return clean(JSON.parse(raw));
   } catch (e) {
     console.warn('Could not read saved data:', e);
     return { ...DEFAULTS };
@@ -38,6 +38,52 @@ function save() {
   } catch (e) {
     toast('Could not save — device storage is full or blocked.');
   }
+}
+
+/* Saved data and imported backups are rebuilt field by field: anything that is not the shape
+   the app writes itself is dropped or blanked, so a hand-made backup file can't carry markup
+   into the innerHTML templates (unit, weights, ids, bodyweights are interpolated unescaped). */
+function clean(raw) {
+  const o = raw && typeof raw === 'object' ? raw : {};
+  const isDate = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
+  // set fields are kept as the numeric strings the inputs produce ('0' stays truthy for loggedSets)
+  const num = (v) => (v === '' || v == null || typeof v === 'object' || !Number.isFinite(Number(v)) ? '' : String(v).trim());
+  const time = (v) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : undefined);
+  const str = (v) => (typeof v === 'string' ? v : '');
+  const entries = (e) => {
+    const out = {};
+    for (const [k, sets] of Object.entries(e && typeof e === 'object' ? e : {})) {
+      if (!/^[\w-]{1,40}$/.test(k) || !Array.isArray(sets)) continue;
+      out[k] = sets.filter(x => x && typeof x === 'object')
+        .map(x => ({ w: num(x.w), r: num(x.r), rir: num(x.rir), done: x.done === true }));
+    }
+    return out;
+  };
+  const day = (k) => typeof k === 'string' && Object.hasOwn(PROGRAM.days, k);
+  const sessions = (Array.isArray(o.sessions) ? o.sessions : [])
+    .filter(x => x && day(x.dayKey) && isDate(x.date))
+    .map((x, i) => ({
+      id: typeof x.id === 'string' && /^s\d{1,16}$/.test(x.id) ? x.id : `s${i + 1}`,
+      dayKey: x.dayKey, date: x.date, started: time(x.started), ended: time(x.ended),
+      entries: entries(x.entries), notes: str(x.notes),
+    }));
+  const a = o.active;
+  const active = a && day(a.dayKey) && isDate(a.date)
+    ? { dayKey: a.dayKey, date: a.date, started: time(a.started) ?? Date.now(), entries: entries(a.entries), notes: str(a.notes) }
+    : null;
+  const exNotes = {};
+  for (const [k, v] of Object.entries(o.exNotes && typeof o.exNotes === 'object' ? o.exNotes : {}))
+    if (/^[\w-]{1,40}$/.test(k) && typeof v === 'string') exNotes[k] = v;
+  const ni = Number(o.nextIndex);
+  return {
+    ...DEFAULTS,
+    unit: o.unit === 'kg' ? 'kg' : 'lb',
+    nextIndex: Number.isInteger(ni) && ni >= 0 ? ni % PROGRAM.rotation.length : 0,
+    active, sessions, exNotes,
+    bw: (Array.isArray(o.bw) ? o.bw : []).filter(b => b && isDate(b.date) && num(b.v) !== '').map(b => ({ date: b.date, v: Number(b.v) })),
+    sound: o.sound !== false,
+    seenIntro: o.seenIntro === true,
+  };
 }
 
 /* -------------------------------------------------------------- units -- */
@@ -414,7 +460,7 @@ function fmtTonnage(s) {
   let t = 0;
   for (const sets of Object.values(s.entries || {}))
     for (const x of loggedSets(sets)) t += Number(x.w) * Number(x.r);
-  return t ? `${Math.round(t).toLocaleString()} ${unitLabel()}` : '—';
+  return t ? `${Math.round(t).toLocaleString()} ${esc(unitLabel())}` : '—';
 }
 
 /* ------------------------------------------------------------- SESSION -- */
@@ -1214,7 +1260,7 @@ function openSettings() {
         const parsed = JSON.parse(await inp.files[0].text());
         if (!Array.isArray(parsed.sessions)) throw new Error('not an Ironlog backup');
         if (!confirm(`Replace your current log with this backup (${parsed.sessions.length} sessions)?`)) return;
-        DB = { ...DEFAULTS, ...parsed };
+        DB = clean(parsed);
         save(); dlg.close(); render();
         toast('Backup restored.');
       } catch (err) {
